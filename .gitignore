@@ -1,0 +1,24 @@
+# Local / OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Partner Excel & outputs (keep private)
+data/
+outputs/
+*.xlsx
+*.xls
+
+# Test artifacts
+datasource/_dup_test.csv
+
+# Editor
+.cursor/
+.idea/
+.vscode/

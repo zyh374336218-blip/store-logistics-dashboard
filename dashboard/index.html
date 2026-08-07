@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>店铺物流表现看板</title>
+  <style>
+    :root {
+      --bg: #f3f1ec;
+      --card: #fffcf7;
+      --text: #2c2824;
+      --muted: #6f675e;
+      --line: #ddd4c8;
+      --accent: #3d5a73;
+      --bar: #8b6b4a;
+      --danger: #8f4a45;
+      --ok: #4a6b52;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 28px 48px; }
+    h1 { margin: 0; font: 28px/1.25 Georgia, "Songti SC", serif; }
+    .sub { color: var(--muted); margin-top: 6px; }
+    .filters {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      margin: 18px 0 12px; padding: 14px;
+      background: #ebe4da; border: 1px solid var(--line); border-radius: 8px;
+    }
+    .filters label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+    .filters select, .filters input {
+      min-width: 150px; padding: 8px 10px;
+      border: 1px solid #d0c5b6; border-radius: 5px; background: #fff;
+    }
+    .kpis {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0;
+    }
+    .kpi {
+      background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+      padding: 14px 16px; border-top: 3px solid var(--accent);
+    }
+    .kpi span { display: block; color: var(--muted); font-size: 12px; }
+    .kpi strong { display: block; margin-top: 6px; font-size: 22px; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .panel {
+      background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+    }
+    .panel h2 { margin: 0 0 10px; font-size: 16px; }
+    .chart { width: 100%; height: 320px; display: block; }
+    .full { margin-top: 12px; }
+    .tablebox { overflow: auto; max-height: 420px; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #e6ddd2; text-align: right; }
+    th { position: sticky; top: 0; background: #f0e9df; color: var(--muted); z-index: 1; }
+    td:nth-child(-n+3), th:nth-child(-n+3) { text-align: left; }
+    .empty { text-align: center; color: var(--muted); padding: 40px 12px; }
+    .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .err {
+      background: #f6e8e6; border: 1px solid #e0b8b4; color: var(--danger);
+      padding: 16px; border-radius: 8px; margin: 20px 0;
+    }
+    .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0; }
+    .toolbar button {
+      border: 1px solid var(--bar); background: #fffaf4; color: #5c4634;
+      border-radius: 5px; padding: 7px 12px; font-weight: 600; cursor: pointer;
+    }
+    .toolbar button:hover { background: var(--bar); color: #fff; }
+    @media (max-width: 900px) {
+      .kpis, .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>店铺物流表现看板</h1>
+    <div class="sub" id="period">加载中…</div>
+
+    <div class="filters">
+      <label>market
+        <select id="market"></select>
+      </label>
+      <label>PID
+        <select id="pid"></select>
+      </label>
+      <label>PH NO
+        <input id="ph" type="search" placeholder="输入订单号关键词" />
+      </label>
+      <label>日期
+        <select id="day"></select>
+      </label>
+    </div>
+
+    <div id="bootError" class="err" hidden></div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>视图 A · 每日均入库时效（天）</h2>
+        <svg class="chart" id="trendChart" role="img" aria-label="每日均入库时效折线图"></svg>
+        <p class="note">Y 轴：当日 ORDER-SHIPPED 平均数；筛选含 PH NO / 日期时仅统计匹配订单。</p>
+      </section>
+      <section class="panel">
+        <h2>视图 B · PID 均入库时效 Top20</h2>
+        <svg class="chart" id="pidChart" role="img" aria-label="店铺均入库时效柱状图"></svg>
+        <p class="note">同 PID 跨市场合并；柱顶标注保留两位小数。</p>
+      </section>
+    </div>
+
+    <section class="panel full">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <h2 style="margin:0">视图 C · Weight Variance &gt; 0.2 明细</h2>
+        <div class="toolbar">
+          <button type="button" id="downloadCsv">下载当前异常表 CSV</button>
+        </div>
+      </div>
+      <div class="tablebox">
+        <table>
+          <thead>
+            <tr>
+              <th>market</th>
+              <th>PID</th>
+              <th>PH NO</th>
+              <th>DATE</th>
+              <th>ORDER-SHIPPED</th>
+              <th>Uploaded</th>
+              <th>Actual</th>
+              <th>Variance</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <p class="note" id="tableNote"></p>
+    </section>
+  </div>
+
+  <script src="data/logistics.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fmt2 = (v) =>
+      v == null || !Number.isFinite(v) ? "—" : Number(v).toFixed(2);
+    const pct2 = (v) =>
+      v == null || !Number.isFinite(v) ? "—" : (v * 100).toFixed(2) + "%";
+
+    function boot() {
+      if (!window.LOGISTICS_DATA || !Array.isArray(window.LOGISTICS_DATA.orders)) {
+        $("bootError").hidden = false;
+        $("bootError").textContent =
+          "未加载到看板数据。请先在项目根目录运行：python scripts/build_logistics_dashboard.py，然后重新打开本页面。";
+        $("period").textContent = "数据未就绪";
+        return;
+      }
+      const D = window.LOGISTICS_DATA;
+      $("period").textContent =
+        `分析月 ${D.meta.period_month}｜${D.meta.period_start} ~ ${D.meta.period_end}` +
+        `｜源 ${D.meta.source}｜共 ${D.meta.order_count} 单`;
+
+      const markets = [...new Set(D.orders.map((o) => o.market))].sort();
+      $("market").innerHTML =
+        `<option value="ALL">全部</option>` +
+        markets.map((m) => `<option value="${m}">${m}</option>`).join("");
+
+      const days = [...new Set(D.orders.map((o) => o.date))].sort();
+      $("day").innerHTML =
+        `<option value="ALL">全月</option>` +
+        days.map((d) => `<option value="${d}">${d}</option>`).join("");
+
+      populatePids();
+      $("market").onchange = () => {
+        populatePids();
+        render();
+      };
+      $("pid").onchange = render;
+      $("day").onchange = render;
+      $("ph").oninput = render;
+      $("downloadCsv").onclick = exportCsv;
+      render();
+    }
+
+    function populatePids() {
+      const D = window.LOGISTICS_DATA;
+      const m = $("market").value;
+      const old = $("pid").value;
+      const pids = [
+        ...new Set(
+          D.orders
+            .filter((o) => m === "ALL" || o.market === m)
+            .map((o) => o.pid)
+        ),
+      ].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+      $("pid").innerHTML =
+        `<option value="ALL">全部</option>` +
+        pids.map((p) => `<option value="${p}">${p}</option>`).join("");
+      if (pids.includes(old) || old === "ALL") $("pid").value = old;
+      else $("pid").value = "ALL";
+    }
+
+    /** 当前筛选集：market × PID × PH NO × 日 —— 全部视图共用 */
+    function filtered() {
+      const D = window.LOGISTICS_DATA;
+      const m = $("market").value;
+      const p = $("pid").value;
+      const ph = $("ph").value.trim().toLowerCase();
+      const day = $("day").value;
+      return D.orders.filter((o) => {
+        if (m !== "ALL" && o.market !== m) return false;
+        if (p !== "ALL" && String(o.pid) !== String(p)) return false;
+        if (ph && !String(o.ph_no).toLowerCase().includes(ph)) return false;
+        if (day !== "ALL" && o.date !== day) return false;
+        return true;
+      });
+    }
+
+    function mean(arr) {
+      const v = arr.filter((x) => x != null && Number.isFinite(x));
+      if (!v.length) return null;
+      return v.reduce((s, x) => s + x, 0) / v.length;
+    }
+
+    function render() {
+      const rows = filtered();
+      renderKpis(rows);
+      renderTrend(rows);
+      renderPidBars(rows);
+      renderTable(rows);
+    }
+
+    function renderKpis(rows) {
+      const thr = window.LOGISTICS_DATA.meta.weight_outlier_threshold;
+      const outliers = rows.filter((o) => o.weight_variance_kg > thr);
+      const avg = mean(rows.map((o) => o.order_shipped_days));
+      const share = rows.length ? outliers.length / rows.length : null;
+      $("kpis").innerHTML = [
+        ["订单数", String(rows.length)],
+        ["全期均入库时效（天）", fmt2(avg)],
+        [`Weight Variance > ${fmt2(thr)} 订单量`, String(outliers.length)],
+        ["异常订单占比", pct2(share)],
+      ]
+        .map(
+          ([k, v]) =>
+            `<div class="kpi"><span>${k}</span><strong>${v}</strong></div>`
+        )
+        .join("");
+    }
+
+    function svgSize(el) {
+      const w = el.clientWidth || 560;
+      const h = 320;
+      el.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      return { w, h };
+    }
+
+    function renderTrend(rows) {
+      const el = $("trendChart");
+      const { w, h } = svgSize(el);
+      const byDay = new Map();
+      rows.forEach((o) => {
+        if (!byDay.has(o.date)) byDay.set(o.date, []);
+        byDay.get(o.date).push(o.order_shipped_days);
+      });
+      const points = [...byDay.keys()]
+        .sort()
+        .map((d) => ({ date: d, avg: mean(byDay.get(d)) }));
+      if (!points.length) {
+        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">当前筛选无数据</text>`;
+        return;
+      }
+      const pad = { l: 48, r: 16, t: 20, b: 40 };
+      const maxY = Math.max(...points.map((p) => p.avg), 0.01);
+      const X = (i) =>
+        pad.l +
+        (points.length === 1
+          ? (w - pad.l - pad.r) / 2
+          : (i / (points.length - 1)) * (w - pad.l - pad.r));
+      const Y = (v) => h - pad.b - (v / maxY) * (h - pad.t - pad.b);
+      const path = points
+        .map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p.avg).toFixed(1)}`)
+        .join(" ");
+      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
+      s += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
+      s += `<path d="${path}" fill="none" stroke="#3d5a73" stroke-width="2"/>`;
+      points.forEach((p, i) => {
+        s += `<circle cx="${X(i)}" cy="${Y(p.avg)}" r="4" fill="#3d5a73">`;
+        s += `<title>${p.date}: ${fmt2(p.avg)} 天</title></circle>`;
+        s += `<text x="${X(i)}" y="${Y(p.avg) - 8}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(p.avg)}</text>`;
+      });
+      const ticks = [0, Math.floor((points.length - 1) / 2), points.length - 1];
+      [...new Set(ticks)].forEach((i) => {
+        s += `<text x="${X(i)}" y="${h - 14}" text-anchor="middle" font-size="10" fill="#6f675e">${points[i].date.slice(5)}</text>`;
+      });
+      s += `<text x="8" y="${pad.t + 4}" font-size="10" fill="#6f675e">${fmt2(maxY)}</text>`;
+      el.innerHTML = s;
+    }
+
+    function renderPidBars(rows) {
+      const el = $("pidChart");
+      const { w, h } = svgSize(el);
+      const byPid = new Map();
+      rows.forEach((o) => {
+        const k = String(o.pid);
+        if (!byPid.has(k)) byPid.set(k, []);
+        byPid.get(k).push(o.order_shipped_days);
+      });
+      const ranked = [...byPid.entries()]
+        .map(([pid, vals]) => ({ pid, avg: mean(vals) }))
+        .sort((a, b) => b.avg - a.avg)
+        .slice(0, 20);
+      if (!ranked.length) {
+        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">当前筛选无数据</text>`;
+        return;
+      }
+      const pad = { l: 42, r: 12, t: 28, b: 56 };
+      const maxY = Math.max(...ranked.map((x) => x.avg), 0.01);
+      const bw = (w - pad.l - pad.r) / ranked.length;
+      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
+      ranked.forEach((x, i) => {
+        const barW = Math.max(8, bw * 0.62);
+        const x0 = pad.l + i * bw + (bw - barW) / 2;
+        const barH = (x.avg / maxY) * (h - pad.t - pad.b);
+        const y0 = h - pad.b - barH;
+        s += `<rect x="${x0}" y="${y0}" width="${barW}" height="${Math.max(barH, 1)}" fill="#8b6b4a">`;
+        s += `<title>PID ${x.pid}: ${fmt2(x.avg)} 天</title></rect>`;
+        s += `<text x="${x0 + barW / 2}" y="${y0 - 6}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(x.avg)}</text>`;
+        s += `<text x="${x0 + barW / 2}" y="${h - 10}" text-anchor="end" font-size="10" fill="#6f675e" transform="rotate(-40 ${x0 + barW / 2} ${h - 10})">${x.pid}</text>`;
+      });
+      el.innerHTML = s;
+    }
+
+    function renderTable(rows) {
+      const thr = window.LOGISTICS_DATA.meta.weight_outlier_threshold;
+      const out = rows
+        .filter((o) => o.weight_variance_kg > thr)
+        .sort((a, b) => b.weight_variance_kg - a.weight_variance_kg);
+      $("tbody").innerHTML =
+        out
+          .map(
+            (o) => `<tr>
+              <td>${o.market}</td>
+              <td>${o.pid}</td>
+              <td>${o.ph_no}</td>
+              <td>${o.date}</td>
+              <td>${fmt2(o.order_shipped_days)}</td>
+              <td>${fmt2(o.uploaded_weight_kg)}</td>
+              <td>${fmt2(o.actual_weight_kg)}</td>
+              <td>${fmt2(o.weight_variance_kg)}</td>
+            </tr>`
+          )
+          .join("") ||
+        `<tr><td colspan="8" class="empty">当前筛选无 Weight Variance &gt; ${fmt2(thr)} 的订单</td></tr>`;
+      $("tableNote").textContent = `异常 ${out.length} / 筛选订单 ${rows.length}（阈值 ${fmt2(thr)} kg）`;
+    }
+
+    function exportCsv() {
+      const thr = window.LOGISTICS_DATA.meta.weight_outlier_threshold;
+      const out = filtered().filter((o) => o.weight_variance_kg > thr);
+      const headers = [
+        "market",
+        "PID",
+        "PH NO",
+        "DATE",
+        "ORDER-SHIPPED(days)",
+        "Uploaded Weight",
+        "Actual Weighed Weight",
+        "Weight Variance",
+      ];
+      const lines = [
+        headers,
+        ...out.map((o) => [
+          o.market,
+          o.pid,
+          o.ph_no,
+          o.date,
+          fmt2(o.order_shipped_days),
+          fmt2(o.uploaded_weight_kg),
+          fmt2(o.actual_weight_kg),
+          fmt2(o.weight_variance_kg),
+        ]),
+      ];
+      const esc = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const body = lines.map((r) => r.map(esc).join(",")).join("\r\n");
+      const blob = new Blob(["\ufeff" + body], {
+        type: "text/csv;charset=utf-8",
+      });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `weight_variance_gt_${fmt2(thr)}_${window.LOGISTICS_DATA.meta.period_month}.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    window.addEventListener("resize", () => {
+      if (window.LOGISTICS_DATA) render();
+    });
+    boot();
+  </script>
+</body>
+</html>
