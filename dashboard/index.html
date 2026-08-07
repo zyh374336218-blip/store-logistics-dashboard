@@ -51,6 +51,7 @@
     }
     .panel h2 { margin: 0 0 10px; font-size: 16px; }
     .chart { width: 100%; height: 320px; display: block; }
+    .chart-pid { height: 440px; }
     .full { margin-top: 12px; }
     .tablebox { overflow: auto; max-height: 420px; }
     table { width: 100%; border-collapse: collapse; white-space: nowrap; }
@@ -106,7 +107,7 @@
       </section>
       <section class="panel">
         <h2>视图 B · PID 均入库时效 Top20</h2>
-        <svg class="chart" id="pidChart" role="img" aria-label="店铺均入库时效柱状图"></svg>
+        <svg class="chart chart-pid" id="pidChart" role="img" aria-label="店铺均入库时效柱状图"></svg>
         <p class="note">同 PID 跨市场合并；柱顶标注保留两位小数。</p>
       </section>
     </div>
@@ -250,7 +251,7 @@
 
     function svgSize(el) {
       const w = el.clientWidth || 560;
-      const h = 320;
+      const h = el.clientHeight || 320;
       el.setAttribute("viewBox", `0 0 ${w} ${h}`);
       return { w, h };
     }
@@ -314,7 +315,13 @@
         el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">当前筛选无数据</text>`;
         return;
       }
-      const pad = { l: 42, r: 12, t: 28, b: 56 };
+      const maxPidLen = Math.max(...ranked.map((x) => String(x.pid).length), 4);
+      const pad = {
+        l: 42,
+        r: 18,
+        t: 28,
+        b: Math.max(96, Math.ceil(maxPidLen * 7.5 + 28)),
+      };
       const maxY = Math.max(...ranked.map((x) => x.avg), 0.01);
       const bw = (w - pad.l - pad.r) / ranked.length;
       let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
@@ -323,10 +330,12 @@
         const x0 = pad.l + i * bw + (bw - barW) / 2;
         const barH = (x.avg / maxY) * (h - pad.t - pad.b);
         const y0 = h - pad.b - barH;
+        const labelX = x0 + barW / 2;
+        const labelY = h - pad.b + 12;
         s += `<rect x="${x0}" y="${y0}" width="${barW}" height="${Math.max(barH, 1)}" fill="#8b6b4a">`;
         s += `<title>PID ${x.pid}: ${fmt2(x.avg)} 天</title></rect>`;
-        s += `<text x="${x0 + barW / 2}" y="${y0 - 6}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(x.avg)}</text>`;
-        s += `<text x="${x0 + barW / 2}" y="${h - 10}" text-anchor="end" font-size="10" fill="#6f675e" transform="rotate(-40 ${x0 + barW / 2} ${h - 10})">${x.pid}</text>`;
+        s += `<text x="${labelX}" y="${y0 - 6}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(x.avg)}</text>`;
+        s += `<text x="${labelX}" y="${labelY}" text-anchor="end" font-size="11" fill="#6f675e" transform="rotate(-55 ${labelX} ${labelY})">${x.pid}</text>`;
       });
       el.innerHTML = s;
     }
