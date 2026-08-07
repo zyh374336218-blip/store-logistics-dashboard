@@ -106,7 +106,7 @@
         <p class="note">Y 轴：当日 ORDER-SHIPPED 平均数；筛选含 PH NO / 日期时仅统计匹配订单。</p>
       </section>
       <section class="panel">
-        <h2>视图 B · PID 均入库时效 Top20</h2>
+        <h2>视图 B · PID 均入库时效 Top15</h2>
         <svg class="chart chart-pid" id="pidChart" role="img" aria-label="店铺均入库时效柱状图"></svg>
         <p class="note">同 PID 跨市场合并；柱顶标注保留两位小数。</p>
       </section>
@@ -310,7 +310,7 @@
       const ranked = [...byPid.entries()]
         .map(([pid, vals]) => ({ pid, avg: mean(vals) }))
         .sort((a, b) => b.avg - a.avg)
-        .slice(0, 20);
+        .slice(0, 15);
       if (!ranked.length) {
         el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">当前筛选无数据</text>`;
         return;
