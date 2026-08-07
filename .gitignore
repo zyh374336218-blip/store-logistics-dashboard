@@ -10,8 +10,8 @@ __pycache__/
 venv/
 
 # Partner Excel & outputs (keep private)
-data/
-outputs/
+/data/
+/outputs/
 *.xlsx
 *.xls
 
