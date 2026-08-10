@@ -10,7 +10,7 @@
       --card: #fffcf7;
       --text: #2c2824;
       --muted: #6f675e;
-      --line: #ddd4c8;
+      --line: #000000;
       --accent: #3d5a73;
       --bar: #8b6b4a;
       --danger: #8f4a45;
@@ -34,7 +34,7 @@
     .filters label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
     .filters select, .filters input {
       min-width: 150px; padding: 8px 10px;
-      border: 1px solid #d0c5b6; border-radius: 5px; background: #fff;
+      border: 1px solid #000000; border-radius: 5px; background: #fff;
     }
     .kpis {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0;
@@ -55,7 +55,7 @@
     .full { margin-top: 12px; }
     .tablebox { overflow: auto; max-height: 420px; }
     table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-    th, td { padding: 8px 10px; border-bottom: 1px solid #e6ddd2; text-align: right; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #000000; text-align: right; }
     th { position: sticky; top: 0; background: #c7edcc; color: var(--muted); z-index: 1; }
     td:nth-child(-n+3), th:nth-child(-n+3) { text-align: left; }
     .empty { text-align: center; color: var(--muted); padding: 40px 12px; }
@@ -66,7 +66,7 @@
     }
     .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0; }
     .toolbar button {
-      border: 1px solid var(--bar); background: #fffaf4; color: #5c4634;
+      border: 1px solid #000000; background: #fffaf4; color: #5c4634;
       border-radius: 5px; padding: 7px 12px; font-weight: 600; cursor: pointer;
     }
     .toolbar button:hover { background: var(--bar); color: #fff; }
@@ -282,8 +282,8 @@
       const path = points
         .map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p.avg).toFixed(1)}`)
         .join(" ");
-      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
-      s += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
+      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#000000"/>`;
+      s += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="#000000"/>`;
       s += `<path d="${path}" fill="none" stroke="#3d5a73" stroke-width="2"/>`;
       points.forEach((p, i) => {
         s += `<circle cx="${X(i)}" cy="${Y(p.avg)}" r="4" fill="#3d5a73">`;
@@ -325,7 +325,7 @@
       };
       const maxY = Math.max(...ranked.map((x) => x.avg), 0.01);
       const bw = (w - pad.l - pad.r) / ranked.length;
-      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#ddd4c8"/>`;
+      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#000000"/>`;
       ranked.forEach((x, i) => {
         const barW = Math.max(8, bw * 0.62);
         const x0 = pad.l + i * bw + (bw - barW) / 2;
