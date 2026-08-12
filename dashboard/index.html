@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>店铺物流表现看板</title>
+  <title>Store Logistics Performance Dashboard</title>
   <style>
     :root {
       --bg: #c7edcc;
@@ -21,10 +21,10 @@
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+      font: 14px/1.5 "Segoe UI", Arial, sans-serif;
     }
     .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 28px 48px; }
-    h1 { margin: 0; font: 28px/1.25 Georgia, "Songti SC", serif; }
+    h1 { margin: 0; font: 28px/1.25 Georgia, "Times New Roman", serif; }
     .sub { color: var(--muted); margin-top: 6px; }
     .filters {
       display: flex; flex-wrap: wrap; gap: 12px;
@@ -36,6 +36,7 @@
       min-width: 150px; padding: 8px 10px;
       border: 1px solid #000000; border-radius: 5px; background: #fff;
     }
+    .filters select#volume { min-width: 220px; }
     .kpis {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0;
     }
@@ -77,20 +78,27 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>店铺物流表现看板</h1>
-    <div class="sub" id="period">加载中…</div>
+    <h1>Store Logistics Performance Dashboard</h1>
+    <div class="sub" id="period">Loading…</div>
 
     <div class="filters">
-      <label>market
+      <label>Market
         <select id="market"></select>
+      </label>
+      <label>Store volume
+        <select id="volume">
+          <option value="ALL">All stores</option>
+          <option value="GE100">Order volume ≥ 100</option>
+          <option value="LT100">Order volume &lt; 100</option>
+        </select>
       </label>
       <label>PID
         <select id="pid"></select>
       </label>
       <label>PH NO
-        <input id="ph" type="search" placeholder="输入订单号关键词" />
+        <input id="ph" type="search" placeholder="Search order ID" />
       </label>
-      <label>日期
+      <label>Date
         <select id="day"></select>
       </label>
     </div>
@@ -101,22 +109,22 @@
 
     <div class="grid">
       <section class="panel">
-        <h2>视图 A · 每日均入库时效（天）</h2>
-        <svg class="chart" id="trendChart" role="img" aria-label="每日均入库时效折线图"></svg>
-        <p class="note">Y 轴：当日 ORDER-SHIPPED 平均数；筛选含 PH NO / 日期时仅统计匹配订单。</p>
+        <h2>View A · Daily avg ORDER-SHIPPED (days)</h2>
+        <svg class="chart" id="trendChart" role="img" aria-label="Daily average inbound lead time line chart"></svg>
+        <p class="note">Y-axis: daily mean of ORDER-SHIPPED. Filters (including PH NO / Date / Store volume) apply to matching orders only.</p>
       </section>
       <section class="panel">
-        <h2>视图 B · PID 均入库时效 Top15</h2>
-        <svg class="chart chart-pid" id="pidChart" role="img" aria-label="店铺均入库时效柱状图"></svg>
-        <p class="note">同 PID 跨市场合并；柱顶标注保留两位小数。</p>
+        <h2>View B · Top 15 PIDs by avg ORDER-SHIPPED</h2>
+        <svg class="chart chart-pid" id="pidChart" role="img" aria-label="Store average inbound lead time bar chart"></svg>
+        <p class="note">Same PID is merged across markets. Bar labels use 2 decimal places.</p>
       </section>
     </div>
 
     <section class="panel full">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <h2 style="margin:0">视图 C · Weight Variance &gt; 0.2 明细</h2>
+        <h2 style="margin:0">View C · Weight Variance &gt; 0.2 detail</h2>
         <div class="toolbar">
-          <button type="button" id="downloadCsv">下载当前异常表 CSV</button>
+          <button type="button" id="downloadCsv">Download current outlier CSV</button>
         </div>
       </div>
       <div class="tablebox">
@@ -148,31 +156,56 @@
     const pct2 = (v) =>
       v == null || !Number.isFinite(v) ? "—" : (v * 100).toFixed(2) + "%";
 
+    /** Order count per PID across the full loaded dataset (PID merged across markets). */
+    let pidOrderCounts = new Map();
+
+    function buildPidOrderCounts() {
+      const counts = new Map();
+      window.LOGISTICS_DATA.orders.forEach((o) => {
+        const k = String(o.pid);
+        counts.set(k, (counts.get(k) || 0) + 1);
+      });
+      pidOrderCounts = counts;
+    }
+
+    function pidMatchesVolume(pid, volume) {
+      if (volume === "ALL") return true;
+      const n = pidOrderCounts.get(String(pid)) || 0;
+      if (volume === "GE100") return n >= 100;
+      if (volume === "LT100") return n < 100;
+      return true;
+    }
+
     function boot() {
       if (!window.LOGISTICS_DATA || !Array.isArray(window.LOGISTICS_DATA.orders)) {
         $("bootError").hidden = false;
         $("bootError").textContent =
-          "未加载到看板数据。请先在项目根目录运行：python scripts/build_logistics_dashboard.py，然后重新打开本页面。";
-        $("period").textContent = "数据未就绪";
+          "Dashboard data was not loaded. Run `python scripts/build_logistics_dashboard.py` from the project root, then reopen this page.";
+        $("period").textContent = "Data not ready";
         return;
       }
       const D = window.LOGISTICS_DATA;
+      buildPidOrderCounts();
       $("period").textContent =
-        `分析月 ${D.meta.period_month}｜${D.meta.period_start} ~ ${D.meta.period_end}` +
-        `｜源 ${D.meta.source}｜共 ${D.meta.order_count} 单`;
+        `Period ${D.meta.period_month} | ${D.meta.period_start} ~ ${D.meta.period_end}` +
+        ` | Source ${D.meta.source} | ${D.meta.order_count} orders`;
 
       const markets = [...new Set(D.orders.map((o) => o.market))].sort();
       $("market").innerHTML =
-        `<option value="ALL">全部</option>` +
+        `<option value="ALL">All</option>` +
         markets.map((m) => `<option value="${m}">${m}</option>`).join("");
 
       const days = [...new Set(D.orders.map((o) => o.date))].sort();
       $("day").innerHTML =
-        `<option value="ALL">全月</option>` +
+        `<option value="ALL">All dates</option>` +
         days.map((d) => `<option value="${d}">${d}</option>`).join("");
 
       populatePids();
       $("market").onchange = () => {
+        populatePids();
+        render();
+      };
+      $("volume").onchange = () => {
         populatePids();
         render();
       };
@@ -186,30 +219,37 @@
     function populatePids() {
       const D = window.LOGISTICS_DATA;
       const m = $("market").value;
+      const volume = $("volume").value;
       const old = $("pid").value;
       const pids = [
         ...new Set(
           D.orders
-            .filter((o) => m === "ALL" || o.market === m)
+            .filter(
+              (o) =>
+                (m === "ALL" || o.market === m) &&
+                pidMatchesVolume(o.pid, volume)
+            )
             .map((o) => o.pid)
         ),
       ].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
       $("pid").innerHTML =
-        `<option value="ALL">全部</option>` +
+        `<option value="ALL">All</option>` +
         pids.map((p) => `<option value="${p}">${p}</option>`).join("");
-      if (pids.includes(old) || old === "ALL") $("pid").value = old;
+      if (pids.map(String).includes(String(old)) || old === "ALL") $("pid").value = old;
       else $("pid").value = "ALL";
     }
 
-    /** 当前筛选集：market × PID × PH NO × 日 —— 全部视图共用 */
+    /** Shared filter set for KPIs and Views A/B/C. */
     function filtered() {
       const D = window.LOGISTICS_DATA;
       const m = $("market").value;
+      const volume = $("volume").value;
       const p = $("pid").value;
       const ph = $("ph").value.trim().toLowerCase();
       const day = $("day").value;
       return D.orders.filter((o) => {
         if (m !== "ALL" && o.market !== m) return false;
+        if (!pidMatchesVolume(o.pid, volume)) return false;
         if (p !== "ALL" && String(o.pid) !== String(p)) return false;
         if (ph && !String(o.ph_no).toLowerCase().includes(ph)) return false;
         if (day !== "ALL" && o.date !== day) return false;
@@ -237,10 +277,10 @@
       const avg = mean(rows.map((o) => o.order_shipped_days));
       const share = rows.length ? outliers.length / rows.length : null;
       $("kpis").innerHTML = [
-        ["订单数", String(rows.length)],
-        ["全期均入库时效（天）", fmt2(avg)],
-        [`Weight Variance > ${fmt2(thr)} 订单量`, String(outliers.length)],
-        ["异常订单占比", pct2(share)],
+        ["Orders", String(rows.length)],
+        ["Avg ORDER-SHIPPED (days)", fmt2(avg)],
+        [`Orders with Weight Variance > ${fmt2(thr)}`, String(outliers.length)],
+        ["Outlier share", pct2(share)],
       ]
         .map(
           ([k, v]) =>
@@ -268,7 +308,7 @@
         .sort()
         .map((d) => ({ date: d, avg: mean(byDay.get(d)) }));
       if (!points.length) {
-        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">当前筛选无数据</text>`;
+        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">No data for current filters</text>`;
         return;
       }
       const pad = { l: 48, r: 16, t: 20, b: 40 };
@@ -287,7 +327,7 @@
       s += `<path d="${path}" fill="none" stroke="#3d5a73" stroke-width="2"/>`;
       points.forEach((p, i) => {
         s += `<circle cx="${X(i)}" cy="${Y(p.avg)}" r="4" fill="#3d5a73">`;
-        s += `<title>${p.date}: ${fmt2(p.avg)} 天</title></circle>`;
+        s += `<title>${p.date}: ${fmt2(p.avg)} days</title></circle>`;
         s += `<text x="${X(i)}" y="${Y(p.avg) - 8}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(p.avg)}</text>`;
       });
       const ticks = [0, Math.floor((points.length - 1) / 2), points.length - 1];
@@ -312,11 +352,10 @@
         .sort((a, b) => b.avg - a.avg)
         .slice(0, 15);
       if (!ranked.length) {
-        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">当前筛选无数据</text>`;
+        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">No data for current filters</text>`;
         return;
       }
       const maxPidLen = Math.max(...ranked.map((x) => String(x.pid).length), 4);
-      // 左倾标签会向左伸出：左侧留白需覆盖「首根柱」PID 首字符，避免被裁切
       const pad = {
         l: Math.max(78, Math.ceil(maxPidLen * 9 + 30)),
         r: 22,
@@ -334,7 +373,7 @@
         const labelX = x0 + barW / 2;
         const labelY = h - pad.b + 14;
         s += `<rect x="${x0}" y="${y0}" width="${barW}" height="${Math.max(barH, 1)}" fill="#8b6b4a">`;
-        s += `<title>PID ${x.pid}: ${fmt2(x.avg)} 天</title></rect>`;
+        s += `<title>PID ${x.pid}: ${fmt2(x.avg)} days</title></rect>`;
         s += `<text x="${labelX}" y="${y0 - 6}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(x.avg)}</text>`;
         s += `<text x="${labelX}" y="${labelY}" text-anchor="end" font-size="11" fill="#6f675e" transform="rotate(-50 ${labelX} ${labelY})">${x.pid}</text>`;
       });
@@ -361,8 +400,8 @@
             </tr>`
           )
           .join("") ||
-        `<tr><td colspan="8" class="empty">当前筛选无 Weight Variance &gt; ${fmt2(thr)} 的订单</td></tr>`;
-      $("tableNote").textContent = `异常 ${out.length} / 筛选订单 ${rows.length}（阈值 ${fmt2(thr)} kg）`;
+        `<tr><td colspan="8" class="empty">No orders with Weight Variance &gt; ${fmt2(thr)} under current filters</td></tr>`;
+      $("tableNote").textContent = `Outliers ${out.length} / filtered orders ${rows.length} (threshold ${fmt2(thr)} kg)`;
     }
 
     function exportCsv() {
