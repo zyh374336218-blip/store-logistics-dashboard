@@ -120,9 +120,22 @@
       </section>
     </div>
 
+    <div class="grid">
+      <section class="panel">
+        <h2>View C · Daily P90 ORDER-SHIPPED (days)</h2>
+        <svg class="chart" id="p90TrendChart" role="img" aria-label="Daily P90 inbound lead time line chart"></svg>
+        <p class="note">Y-axis: daily P90 of ORDER-SHIPPED (PERCENTILE.INC). 90% of that day's orders completed inbound by this lead time. A single Date filter shows one point.</p>
+      </section>
+      <section class="panel">
+        <h2>View D · Top 15 PIDs by P90 ORDER-SHIPPED</h2>
+        <svg class="chart chart-pid" id="p90PidChart" role="img" aria-label="Store P90 inbound lead time bar chart"></svg>
+        <p class="note">Same PID is merged across markets. Bars show P90 ORDER-SHIPPED (PERCENTILE.INC); top labels use 2 decimals.</p>
+      </section>
+    </div>
+
     <section class="panel full">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <h2 style="margin:0">View C · Weight Variance &gt; 0.2 detail</h2>
+        <h2 style="margin:0">View E · Weight Variance &gt; 0.2 detail</h2>
         <div class="toolbar">
           <button type="button" id="downloadCsv">Download current outlier CSV</button>
         </div>
@@ -239,7 +252,7 @@
       else $("pid").value = "ALL";
     }
 
-    /** Shared filter set for KPIs and Views A/B/C. */
+    /** Shared filter set for KPIs and Views A/B/C/D/E. */
     function filtered() {
       const D = window.LOGISTICS_DATA;
       const m = $("market").value;
@@ -263,11 +276,27 @@
       return v.reduce((s, x) => s + x, 0) / v.length;
     }
 
+    /** Excel PERCENTILE.INC / linear interpolation; p in [0, 1]. */
+    function percentileInc(arr, p) {
+      const v = arr.filter((x) => x != null && Number.isFinite(x)).sort((a, b) => a - b);
+      const n = v.length;
+      if (!n) return null;
+      if (n === 1) return v[0];
+      const rank = p * (n - 1);
+      const lo = Math.floor(rank);
+      const hi = Math.ceil(rank);
+      if (lo === hi) return v[lo];
+      const w = rank - lo;
+      return v[lo] * (1 - w) + v[hi] * w;
+    }
+
     function render() {
       const rows = filtered();
       renderKpis(rows);
       renderTrend(rows);
       renderPidBars(rows);
+      renderP90Trend(rows);
+      renderP90PidBars(rows);
       renderTable(rows);
     }
 
@@ -375,6 +404,92 @@
         s += `<rect x="${x0}" y="${y0}" width="${barW}" height="${Math.max(barH, 1)}" fill="#8b6b4a">`;
         s += `<title>PID ${x.pid}: ${fmt2(x.avg)} days</title></rect>`;
         s += `<text x="${labelX}" y="${y0 - 6}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(x.avg)}</text>`;
+        s += `<text x="${labelX}" y="${labelY}" text-anchor="end" font-size="11" fill="#6f675e" transform="rotate(-50 ${labelX} ${labelY})">${x.pid}</text>`;
+      });
+      el.innerHTML = s;
+    }
+
+    function renderP90Trend(rows) {
+      const el = $("p90TrendChart");
+      const { w, h } = svgSize(el);
+      const byDay = new Map();
+      rows.forEach((o) => {
+        if (!byDay.has(o.date)) byDay.set(o.date, []);
+        byDay.get(o.date).push(o.order_shipped_days);
+      });
+      const points = [...byDay.keys()]
+        .sort()
+        .map((d) => ({ date: d, p90: percentileInc(byDay.get(d), 0.9) }))
+        .filter((p) => p.p90 != null);
+      if (!points.length) {
+        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">No data for current filters</text>`;
+        return;
+      }
+      const pad = { l: 48, r: 16, t: 20, b: 40 };
+      const maxY = Math.max(...points.map((p) => p.p90), 0.01);
+      const X = (i) =>
+        pad.l +
+        (points.length === 1
+          ? (w - pad.l - pad.r) / 2
+          : (i / (points.length - 1)) * (w - pad.l - pad.r));
+      const Y = (v) => h - pad.b - (v / maxY) * (h - pad.t - pad.b);
+      const path = points
+        .map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p.p90).toFixed(1)}`)
+        .join(" ");
+      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#000000"/>`;
+      s += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="#000000"/>`;
+      s += `<path d="${path}" fill="none" stroke="#3d5a73" stroke-width="2"/>`;
+      points.forEach((p, i) => {
+        s += `<circle cx="${X(i)}" cy="${Y(p.p90)}" r="4" fill="#3d5a73">`;
+        s += `<title>${p.date}: P90 ${fmt2(p.p90)} days</title></circle>`;
+        s += `<text x="${X(i)}" y="${Y(p.p90) - 8}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(p.p90)}</text>`;
+      });
+      const ticks = [0, Math.floor((points.length - 1) / 2), points.length - 1];
+      [...new Set(ticks)].forEach((i) => {
+        s += `<text x="${X(i)}" y="${h - 14}" text-anchor="middle" font-size="10" fill="#6f675e">${points[i].date.slice(5)}</text>`;
+      });
+      s += `<text x="8" y="${pad.t + 4}" font-size="10" fill="#6f675e">${fmt2(maxY)}</text>`;
+      el.innerHTML = s;
+    }
+
+    function renderP90PidBars(rows) {
+      const el = $("p90PidChart");
+      const { w, h } = svgSize(el);
+      const byPid = new Map();
+      rows.forEach((o) => {
+        const k = String(o.pid);
+        if (!byPid.has(k)) byPid.set(k, []);
+        byPid.get(k).push(o.order_shipped_days);
+      });
+      const ranked = [...byPid.entries()]
+        .map(([pid, vals]) => ({ pid, p90: percentileInc(vals, 0.9) }))
+        .filter((x) => x.p90 != null)
+        .sort((a, b) => b.p90 - a.p90)
+        .slice(0, 15);
+      if (!ranked.length) {
+        el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">No data for current filters</text>`;
+        return;
+      }
+      const maxPidLen = Math.max(...ranked.map((x) => String(x.pid).length), 4);
+      const pad = {
+        l: Math.max(78, Math.ceil(maxPidLen * 9 + 30)),
+        r: 22,
+        t: 28,
+        b: Math.max(100, Math.ceil(maxPidLen * 8 + 32)),
+      };
+      const maxY = Math.max(...ranked.map((x) => x.p90), 0.01);
+      const bw = (w - pad.l - pad.r) / ranked.length;
+      let s = `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="#000000"/>`;
+      ranked.forEach((x, i) => {
+        const barW = Math.max(8, bw * 0.62);
+        const x0 = pad.l + i * bw + (bw - barW) / 2;
+        const barH = (x.p90 / maxY) * (h - pad.t - pad.b);
+        const y0 = h - pad.b - barH;
+        const labelX = x0 + barW / 2;
+        const labelY = h - pad.b + 14;
+        s += `<rect x="${x0}" y="${y0}" width="${barW}" height="${Math.max(barH, 1)}" fill="#8b6b4a">`;
+        s += `<title>PID ${x.pid}: P90 ${fmt2(x.p90)} days</title></rect>`;
+        s += `<text x="${labelX}" y="${y0 - 6}" text-anchor="middle" font-size="10" fill="#2c2824">${fmt2(x.p90)}</text>`;
         s += `<text x="${labelX}" y="${labelY}" text-anchor="end" font-size="11" fill="#6f675e" transform="rotate(-50 ${labelX} ${labelY})">${x.pid}</text>`;
       });
       el.innerHTML = s;
