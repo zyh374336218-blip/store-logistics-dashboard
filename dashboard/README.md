@@ -1,31 +1,32 @@
-# 店铺物流表现看板（本机打开）
+# Store Logistics Performance Dashboard (local)
 
-## 怎么用（托管方式 A）
+## How to use (hosting mode A)
 
-1. 更新数据：替换 `datasource/daily.csv`（正式全量替换演示样例即可）
-2. 生成看板数据：
+1. Update data: replace `datasource/daily.xlsx`
+2. Generate dashboard data:
 
 ```bash
 python scripts/build_logistics_dashboard.py
 ```
 
-3. 用浏览器打开 `dashboard/index.html`（双击或拖到浏览器）
+3. Open `dashboard/index.html` in a browser (double-click or drag into Chrome/Edge)
 
-不需要服务器、不需要公网链接。以后若要分享给同事，再选 GitHub Pages 或内网托管。
+No server required for local use. Online mirror: GitHub Pages after push.
 
-## 规则摘要
+## Rules summary
 
-| 项 | 规则 |
-|----|------|
-| 异常 | `Weight Variance > 0.2` |
-| PID | 跨 SA/AE 同号合并 |
-| PH NO / 日期 | 与 market、PID 一起过滤；影响 KPI 与视图 A/B/C |
-| 质检 | 空值或重复 PH NO → build 报错「数据源有误」 |
-| 小数 | 展示统一两位 |
+| Item | Rule |
+|------|------|
+| Source | `datasource/daily.xlsx` (includes `qty`, `Weight Variance`) |
+| Outlier | `Weight Variance > 0.2` (taken from source as-is) |
+| PID | Same PID merged across SA/AE |
+| Filters | Market / Store volume / PID / PH NO / Date drive KPI and Views A–E |
+| QA | Empty/`#N/A` or duplicate PH NO → build fails |
+| Decimals | Display with 2 places |
 
-## 文件
+## Files
 
-- `datasource/daily.csv` — 源数据
-- `scripts/build_logistics_dashboard.py` — 清洗与质检
-- `dashboard/data/logistics.js` — 前端数据（自动生成）
-- `dashboard/index.html` — 看板页面
+- `datasource/daily.xlsx` — source data
+- `scripts/build_logistics_dashboard.py` — clean + QA
+- `dashboard/data/logistics.js` — frontend data (generated)
+- `dashboard/index.html` — dashboard page

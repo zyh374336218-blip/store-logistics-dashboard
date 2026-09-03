@@ -151,6 +151,7 @@
               <th>ORDER-SHIPPED</th>
               <th>Uploaded</th>
               <th>Actual</th>
+              <th>qty</th>
               <th>Variance</th>
             </tr>
           </thead>
@@ -511,12 +512,13 @@
               <td>${fmt2(o.order_shipped_days)}</td>
               <td>${fmt2(o.uploaded_weight_kg)}</td>
               <td>${fmt2(o.actual_weight_kg)}</td>
+              <td>${fmt2(o.qty)}</td>
               <td>${fmt2(o.weight_variance_kg)}</td>
             </tr>`
           )
           .join("") ||
-        `<tr><td colspan="8" class="empty">No orders with Weight Variance &gt; ${fmt2(thr)} under current filters</td></tr>`;
-      $("tableNote").textContent = `Outliers ${out.length} / filtered orders ${rows.length} (threshold ${fmt2(thr)} kg)`;
+        `<tr><td colspan="9" class="empty">No orders with Weight Variance &gt; ${fmt2(thr)} under current filters</td></tr>`;
+      $("tableNote").textContent = `Outliers ${out.length} / filtered orders ${rows.length} (threshold ${fmt2(thr)} kg; Variance from source Weight Variance)`;
     }
 
     function exportCsv() {
@@ -530,6 +532,7 @@
         "ORDER-SHIPPED(days)",
         "Uploaded Weight",
         "Actual Weighed Weight",
+        "qty",
         "Weight Variance",
       ];
       const lines = [
@@ -542,6 +545,7 @@
           fmt2(o.order_shipped_days),
           fmt2(o.uploaded_weight_kg),
           fmt2(o.actual_weight_kg),
+          fmt2(o.qty),
           fmt2(o.weight_variance_kg),
         ]),
       ];
