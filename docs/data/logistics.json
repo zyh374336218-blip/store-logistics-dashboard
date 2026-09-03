@@ -4,7 +4,7 @@
     "period_month": "2026-07",
     "period_start": "2026-07-01",
     "period_end": "2026-07-30",
-    "generated_at": "2026-08-14T05:17:15Z",
+    "generated_at": "2026-09-03T23:14:51Z",
     "order_count": 30291,
     "weight_outlier_threshold": 0.2,
     "note": "演示样例可被正式全量 CSV 替换后重跑本脚本"
