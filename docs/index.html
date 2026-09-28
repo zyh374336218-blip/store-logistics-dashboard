@@ -74,10 +74,6 @@
     }
     .grid-ef .tablebox { max-height: 340px; flex: 1; }
     .grid-ef .kpis-2 { grid-template-columns: 1fr 1fr; margin: 10px 0; }
-    @media (max-width: 900px) {
-      .grid-ef { grid-template-columns: 1fr; }
-      .grid-ef > .panel { min-height: 0; }
-    }
     table { width: 100%; border-collapse: collapse; white-space: nowrap; }
     th, td { padding: 8px 10px; border-bottom: 1px solid #000000; text-align: right; }
     th { position: sticky; top: 0; background: #c7edcc; color: var(--muted); z-index: 1; }
@@ -95,7 +91,8 @@
     }
     .toolbar button:hover { background: var(--bar); color: #fff; }
     @media (max-width: 900px) {
-      .kpis, .grid { grid-template-columns: 1fr; }
+      .kpis, .grid, .grid-ef { grid-template-columns: 1fr; }
+      .grid-ef > .panel { min-height: 0; }
     }
   </style>
 </head>
