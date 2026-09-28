@@ -31,6 +31,8 @@ OUT_JS = ROOT / "dashboard" / "data" / "logistics.js"
 OUT_JSON = ROOT / "dashboard" / "data" / "logistics.json"
 
 WEIGHT_OUTLIER_THRESHOLD = 0.2
+UNDELIVERED_OVERDUE_DAYS = 5
+NOT_DELIVERED_SHEET_CANDIDATES = ("not delievered", "not delivered", "Not Delievered")
 
 
 class DataSourceError(Exception):
@@ -90,7 +92,18 @@ def to_float(value, field: str, row_no: int) -> float:
     return v
 
 
-def read_xlsx_rows(path: Path) -> list[list]:
+def _clean_rows(rows: list) -> list[list]:
+    cleaned = []
+    for row in rows:
+        if row is None:
+            continue
+        if all(c is None or str(c).strip() == "" for c in row):
+            continue
+        cleaned.append(list(row))
+    return cleaned
+
+
+def read_xlsx_sheet_rows(path: Path, sheet_name: str | None = None) -> list[list]:
     try:
         import openpyxl
     except ImportError as e:
@@ -98,19 +111,43 @@ def read_xlsx_rows(path: Path) -> list[list]:
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        ws = wb[wb.sheetnames[0]]
+        if sheet_name is None:
+            ws = wb[wb.sheetnames[0]]
+        elif sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+        else:
+            raise DataSourceError(
+                f"找不到工作表「{sheet_name}」，现有: {wb.sheetnames}"
+            )
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
     finally:
         wb.close()
-    # drop fully empty trailing rows
-    cleaned = []
-    for row in rows:
-        if row is None:
-            continue
-        if all(c is None or str(c).strip() == "" for c in row):
-            continue
-        cleaned.append(row)
-    return cleaned
+    return _clean_rows(rows)
+
+
+def read_xlsx_rows(path: Path) -> list[list]:
+    return read_xlsx_sheet_rows(path, sheet_name=None)
+
+
+def find_not_delivered_sheet(path: Path) -> str | None:
+    try:
+        import openpyxl
+    except ImportError as e:
+        raise DataSourceError("需要 openpyxl，请先 pip install openpyxl") from e
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        names = wb.sheetnames
+    finally:
+        wb.close()
+    lower_map = {n.lower(): n for n in names}
+    for cand in NOT_DELIVERED_SHEET_CANDIDATES:
+        if cand.lower() in lower_map:
+            return lower_map[cand.lower()]
+    for n in names:
+        key = n.lower().replace(" ", "")
+        if "notdelievered" in key or "notdelivered" in key:
+            return n
+    return None
 
 
 def read_csv_rows(path: Path) -> list[list[str]]:
@@ -133,10 +170,91 @@ def read_csv_rows(path: Path) -> list[list[str]]:
 def read_source_rows(path: Path) -> list[list]:
     suffix = path.suffix.lower()
     if suffix in {".xlsx", ".xlsm"}:
-        return read_xlsx_rows(path)
+        # Prefer sheet named "daily" when present
+        try:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            names = wb.sheetnames
+            wb.close()
+            daily_name = None
+            for n in names:
+                if n.lower() == "daily":
+                    daily_name = n
+                    break
+            return read_xlsx_sheet_rows(path, sheet_name=daily_name)
+        except DataSourceError:
+            raise
+        except Exception:
+            return read_xlsx_rows(path)
     if suffix == ".csv":
         return read_csv_rows(path)
     raise DataSourceError(f"不支持的数据源类型: {path.suffix}")
+
+
+def load_not_delivered(path: Path) -> list[dict]:
+    """Load undelivered orders from the not-delivered sheet (xlsx only)."""
+    if path.suffix.lower() not in {".xlsx", ".xlsm"}:
+        return []
+    sheet = find_not_delivered_sheet(path)
+    if sheet is None:
+        print(
+            "[warn] 未找到 not delievered / not delivered 工作表，跳过未送达模块",
+            file=sys.stderr,
+        )
+        return []
+    rows = read_xlsx_sheet_rows(path, sheet_name=sheet)
+    if len(rows) < 2:
+        return []
+    # Expected: ph_nr, id_partner, ..., order_pdate, shipped_date, ..., today, order_pdate-today
+    header = [cell_str(h).lower() for h in rows[0]]
+    def col(*names: str) -> int | None:
+        for i, h in enumerate(header):
+            for name in names:
+                if h == name or h.replace(" ", "") == name.replace(" ", ""):
+                    return i
+        return None
+
+    i_ph = col("ph_nr", "ph no", "ph_no")
+    i_pid = col("id_partner", "pid")
+    i_pdate = col("order_pdate")
+    i_today = col("today")
+    i_days = col("order_pdate-today", "order_pdate_today")
+    if i_ph is None or i_pid is None or i_days is None:
+        raise DataSourceError(
+            f"工作表「{sheet}」缺少必要列 ph_nr / id_partner / order_pdate-today，实际表头: {rows[0]}"
+        )
+
+    out: list[dict] = []
+    for i, row in enumerate(rows[1:], start=2):
+        if max(i_ph, i_pid, i_days) >= len(row):
+            raise DataSourceError(f"未送达表第 {i} 行列数不足，数据源有误")
+        ph_no = require_str(row[i_ph], "ph_nr", i)
+        pid = require_str(row[i_pid], "id_partner", i)
+        days = to_float(row[i_days], "order_pdate-today", i)
+        order_pdate = None
+        today_s = None
+        if i_pdate is not None and i_pdate < len(row) and row[i_pdate] not in (None, ""):
+            try:
+                order_pdate = parse_date(row[i_pdate])
+            except DataSourceError:
+                order_pdate = cell_str(row[i_pdate]) or None
+        if i_today is not None and i_today < len(row) and row[i_today] not in (None, ""):
+            try:
+                today_s = parse_date(row[i_today])
+            except DataSourceError:
+                today_s = cell_str(row[i_today]) or None
+        out.append(
+            {
+                "ph_no": ph_no,
+                "pid": pid,
+                "order_pdate": order_pdate,
+                "today": today_s,
+                "order_pdate_today_days": round(days, 2),
+                "is_overdue_gt5": days > UNDELIVERED_OVERDUE_DAYS,
+            }
+        )
+    return out
 
 
 def load_orders(path: Path) -> tuple[list[dict], dict]:
@@ -212,9 +330,21 @@ def load_orders(path: Path) -> tuple[list[dict], dict]:
     return orders, meta
 
 
-def write_outputs(orders: list[dict], meta: dict) -> None:
+def write_outputs(
+    orders: list[dict],
+    meta: dict,
+    not_delivered: list[dict] | None = None,
+) -> None:
     OUT_JS.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"meta": meta, "orders": orders}
+    nd = not_delivered or []
+    overdue = sum(1 for x in nd if x.get("is_overdue_gt5"))
+    meta = {
+        **meta,
+        "not_delivered_count": len(nd),
+        "not_delivered_overdue_gt5_count": overdue,
+        "not_delivered_overdue_threshold_days": UNDELIVERED_OVERDUE_DAYS,
+    }
+    payload = {"meta": meta, "orders": orders, "not_delivered": nd}
     OUT_JSON.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -245,7 +375,8 @@ def main() -> int:
 
     try:
         orders, meta = load_orders(path)
-        write_outputs(orders, meta)
+        not_delivered = load_not_delivered(path)
+        write_outputs(orders, meta, not_delivered)
     except DataSourceError as e:
         print(f"[error] 数据源有误: {e}", file=sys.stderr)
         return 1
@@ -253,6 +384,8 @@ def main() -> int:
     print(
         f"[ok] {meta['order_count']} orders | "
         f"{meta['period_start']} ~ {meta['period_end']} | "
+        f"not_delivered={len(not_delivered)} "
+        f"overdue_gt5={sum(1 for x in not_delivered if x.get('is_overdue_gt5'))} | "
         f"wrote {OUT_JS.relative_to(ROOT).as_posix()} "
         f"and {OUT_JSON.relative_to(ROOT).as_posix()}"
     )
