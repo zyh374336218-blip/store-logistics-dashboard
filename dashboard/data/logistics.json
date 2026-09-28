@@ -2,12 +2,12 @@
   "meta": {
     "source": "datasource/daily.xlsx",
     "period_month": "2026-09",
-    "period_start": "2026-09-01",
+    "period_start": "2026-09-18",
     "period_end": "2026-09-27",
-    "generated_at": "2026-09-28T08:34:42Z",
-    "order_count": 9510,
+    "generated_at": "2026-09-28T08:44:04Z",
+    "order_count": 9507,
     "weight_outlier_threshold": 0.2,
-    "note": "Weight Variance is taken from source as-is; qty is units per PH NO"
+    "note": "Weight Variance is taken from source as-is; qty is units per PH NO; excluded 3 rows with DATE before 2026-09-18 (leftover 2026-09-01)"
   },
   "orders": [
     {
@@ -114093,42 +114093,6 @@
       "qty": 2.0,
       "weight_variance_kg": -0.1,
       "is_weight_outlier": false
-    },
-    {
-      "market": "SA",
-      "pid": "123636",
-      "ph_no": "PH83973631559X",
-      "date": "2026-09-01",
-      "order_shipped_days": 17.0,
-      "uploaded_weight_kg": 0.3,
-      "actual_weight_kg": 0.0,
-      "qty": 1.0,
-      "weight_variance_kg": -0.3,
-      "is_weight_outlier": false
-    },
-    {
-      "market": "SA",
-      "pid": "311935",
-      "ph_no": "PH82945727035X",
-      "date": "2026-09-01",
-      "order_shipped_days": 17.0,
-      "uploaded_weight_kg": 0.5,
-      "actual_weight_kg": 2.56,
-      "qty": 1.0,
-      "weight_variance_kg": 2.06,
-      "is_weight_outlier": true
-    },
-    {
-      "market": "SA",
-      "pid": "311935",
-      "ph_no": "PH80787546740X",
-      "date": "2026-09-01",
-      "order_shipped_days": 17.0,
-      "uploaded_weight_kg": 0.5,
-      "actual_weight_kg": 2.05,
-      "qty": 1.0,
-      "weight_variance_kg": 1.55,
-      "is_weight_outlier": true
     }
   ]
 }
