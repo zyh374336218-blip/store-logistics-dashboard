@@ -4,10 +4,10 @@
     "period_month": "2026-09",
     "period_start": "2026-09-18",
     "period_end": "2026-09-27",
-    "generated_at": "2026-09-28T08:44:04Z",
+    "generated_at": "2026-09-28T08:47:35Z",
     "order_count": 9507,
     "weight_outlier_threshold": 0.2,
-    "note": "Weight Variance is taken from source as-is; qty is units per PH NO; excluded 3 rows with DATE before 2026-09-18 (leftover 2026-09-01)"
+    "note": "Weight Variance is taken from source as-is; qty is units per PH NO"
   },
   "orders": [
     {
