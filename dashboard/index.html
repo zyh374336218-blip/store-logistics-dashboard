@@ -144,6 +144,7 @@
       <section class="panel">
         <h2>View C · Daily P90 ORDER-SHIPPED (days)</h2>
         <svg class="chart" id="p90TrendChart" role="img" aria-label="Daily P90 inbound lead time line chart"></svg>
+        <p class="note" id="p90AvgNote"></p>
         <p class="note">Y-axis: daily P90 of ORDER-SHIPPED (PERCENTILE.INC). 90% of that day's orders completed inbound by this lead time. A single Date filter shows one point.</p>
       </section>
       <section class="panel">
@@ -524,9 +525,15 @@
         .sort()
         .map((d) => ({ date: d, p90: percentileInc(byDay.get(d), 0.9) }))
         .filter((p) => p.p90 != null);
+      const avgNote = $("p90AvgNote");
       if (!points.length) {
         el.innerHTML = `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" fill="#6f675e">No data for current filters</text>`;
+        if (avgNote) avgNote.textContent = "Average of daily P90 ORDER-SHIPPED: —";
         return;
+      }
+      const avgP90 = mean(points.map((p) => p.p90));
+      if (avgNote) {
+        avgNote.textContent = `Average of daily P90 ORDER-SHIPPED: ${fmt2(avgP90)} days`;
       }
       const pad = { l: 48, r: 16, t: 20, b: 40 };
       const maxY = Math.max(...points.map((p) => p.p90), 0.01);

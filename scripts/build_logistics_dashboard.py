@@ -287,6 +287,7 @@ def load_orders(path: Path) -> tuple[list[dict], dict]:
         # Weight Variance from source file — used as-is for View E / outlier KPIs
         variance = to_float(row[8], "Weight Variance", i)
 
+        # Outlier uses raw precision; UI display still formats to 2 decimals.
         is_outlier = variance > WEIGHT_OUTLIER_THRESHOLD
         orders.append(
             {
@@ -298,7 +299,7 @@ def load_orders(path: Path) -> tuple[list[dict], dict]:
                 "uploaded_weight_kg": round(uploaded, 2),
                 "actual_weight_kg": round(actual, 2),
                 "qty": round(qty, 2),
-                "weight_variance_kg": round(variance, 2),
+                "weight_variance_kg": variance,
                 "is_weight_outlier": is_outlier,
             }
         )
