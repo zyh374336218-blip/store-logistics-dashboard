@@ -7,9 +7,10 @@ Usage:
 
 Fails fast if any required field is empty or PH NO is duplicated.
 
-Column order (xlsx):
+Required columns (by header name; order flexible):
   market, PID, PH NO, DATE, ORDER-SHIPPED(days), Uploaded Weight,
-  Actual Weighed Weight, qty, Weight Variance
+  Actual Weighed Weight, Weight Variance
+Optional: qty (defaults to 1 when absent)
 """
 
 from __future__ import annotations
@@ -225,13 +226,23 @@ def load_not_delivered(path: Path) -> list[dict]:
             f"工作表「{sheet}」缺少必要列 ph_nr / id_partner / order_pdate-today，实际表头: {rows[0]}"
         )
 
+    def _is_blank_or_formula(v) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, float) and not math.isfinite(v):
+            return True
+        if isinstance(v, str):
+            s = v.strip()
+            return s == "" or s.startswith("=") or s.lower() in {"null", "#n/a", "n/a"}
+        return False
+
     out: list[dict] = []
+    fallback_today = datetime.now(timezone.utc).date()
     for i, row in enumerate(rows[1:], start=2):
         if max(i_ph, i_pid, i_days) >= len(row):
             raise DataSourceError(f"未送达表第 {i} 行列数不足，数据源有误")
         ph_no = require_str(row[i_ph], "ph_nr", i)
         pid = require_str(row[i_pid], "id_partner", i)
-        days = to_float(row[i_days], "order_pdate-today", i)
         order_pdate = None
         today_s = None
         if i_pdate is not None and i_pdate < len(row) and row[i_pdate] not in (None, ""):
@@ -239,11 +250,32 @@ def load_not_delivered(path: Path) -> list[dict]:
                 order_pdate = parse_date(row[i_pdate])
             except DataSourceError:
                 order_pdate = cell_str(row[i_pdate]) or None
-        if i_today is not None and i_today < len(row) and row[i_today] not in (None, ""):
+        if i_today is not None and i_today < len(row) and not _is_blank_or_formula(
+            row[i_today]
+        ):
             try:
                 today_s = parse_date(row[i_today])
             except DataSourceError:
                 today_s = cell_str(row[i_today]) or None
+
+        days_raw = row[i_days] if i_days < len(row) else None
+        if _is_blank_or_formula(days_raw):
+            if not order_pdate:
+                raise DataSourceError(
+                    f"未送达表第 {i} 行 order_pdate-today 为空且无法用 order_pdate 推算"
+                )
+            pdate = date.fromisoformat(order_pdate)
+            tdate = (
+                date.fromisoformat(today_s) if today_s else fallback_today
+            )
+            if today_s is None:
+                today_s = tdate.isoformat()
+            days = float((tdate - pdate).days)
+        else:
+            days = to_float(days_raw, "order_pdate-today", i)
+            if today_s is None:
+                today_s = fallback_today.isoformat()
+
         out.append(
             {
                 "ph_no": ph_no,
@@ -257,35 +289,105 @@ def load_not_delivered(path: Path) -> list[dict]:
     return out
 
 
+def _norm_header(value) -> str:
+    s = cell_str(value).lower()
+    s = s.replace("（", "(").replace("）", ")")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _header_index_map(header_row: list) -> dict[str, int]:
+    aliases = {
+        "market": ("market",),
+        "pid": ("pid",),
+        "ph_no": ("ph no", "ph_no", "phno"),
+        "date": ("date",),
+        "order_shipped_days": (
+            "order-shipped(days)",
+            "order-shipped (days)",
+            "order shipped (days)",
+            "order-shipped（days)",
+        ),
+        "uploaded_weight": ("uploaded weight",),
+        "actual_weight": ("actual weighed weight", "actual weight"),
+        "qty": ("qty", "quantity"),
+        "weight_variance": ("weight variance",),
+    }
+    by_norm = {_norm_header(h): i for i, h in enumerate(header_row) if cell_str(h)}
+    out: dict[str, int] = {}
+    for key, names in aliases.items():
+        for name in names:
+            if name in by_norm:
+                out[key] = by_norm[name]
+                break
+    return out
+
+
+def _cell(row: list, idx: int | None):
+    if idx is None or idx >= len(row):
+        return None
+    return row[idx]
+
+
 def load_orders(path: Path) -> tuple[list[dict], dict]:
     rows = read_source_rows(path)
     if len(rows) < 2:
         raise DataSourceError("数据源无明细行")
-    # Expect 9 columns with qty before Weight Variance
-    if len(rows[0]) < 9:
+
+    col = _header_index_map(rows[0])
+    required = [
+        "market",
+        "pid",
+        "ph_no",
+        "date",
+        "order_shipped_days",
+        "uploaded_weight",
+        "actual_weight",
+        "weight_variance",
+    ]
+    missing = [k for k in required if k not in col]
+    if missing:
         raise DataSourceError(
-            f"表头列数不足 9（需含 qty 与 Weight Variance），实际 {len(rows[0])}"
+            f"表头缺少必要列: {', '.join(missing)}；实际表头: {rows[0]}"
         )
 
     orders: list[dict] = []
     ph_nos: list[str] = []
+    qty_idx = col.get("qty")
 
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) < 9:
-            raise DataSourceError(f"第 {i} 行列数不足 9，数据源有误")
-        market = require_str(row[0], "market", i)
-        pid = require_str(row[1], "PID", i)
-        ph_no = require_str(row[2], "PH NO", i)
-        if isinstance(row[3], (date, datetime)):
-            date_s = parse_date(row[3])
+        market = require_str(_cell(row, col["market"]), "market", i)
+        pid = require_str(_cell(row, col["pid"]), "PID", i)
+        ph_no = require_str(_cell(row, col["ph_no"]), "PH NO", i)
+        date_raw = _cell(row, col["date"])
+        if isinstance(date_raw, (date, datetime)):
+            date_s = parse_date(date_raw)
         else:
-            date_s = parse_date(require_str(row[3], "DATE", i))
-        shipped = to_float(row[4], "ORDER-SHIPPED（days）", i)
-        uploaded = to_float(row[5], "Uploaded Weight", i)
-        actual = to_float(row[6], "Actual Weighed Weight", i)
-        qty = to_float(row[7], "qty", i)
-        # Weight Variance from source file — used as-is for View E / outlier KPIs
-        variance = to_float(row[8], "Weight Variance", i)
+            date_s = parse_date(require_str(date_raw, "DATE", i))
+        shipped = to_float(
+            _cell(row, col["order_shipped_days"]), "ORDER-SHIPPED（days）", i
+        )
+        uploaded = to_float(
+            _cell(row, col["uploaded_weight"]), "Uploaded Weight", i
+        )
+        actual = to_float(
+            _cell(row, col["actual_weight"]), "Actual Weighed Weight", i
+        )
+        # Prefer source Weight Variance; if blank/formula cache missing, use Actual−Uploaded.
+        variance_raw = _cell(row, col["weight_variance"])
+        if (
+            variance_raw is None
+            or (isinstance(variance_raw, float) and not math.isfinite(variance_raw))
+            or (isinstance(variance_raw, str) and variance_raw.strip() == "")
+            or (isinstance(variance_raw, str) and variance_raw.strip().startswith("="))
+        ):
+            variance = actual - uploaded
+        else:
+            variance = to_float(variance_raw, "Weight Variance", i)
+        if qty_idx is None:
+            qty = 1.0
+        else:
+            qty = to_float(_cell(row, qty_idx), "qty", i)
 
         # Outlier uses raw precision; UI display still formats to 2 decimals.
         is_outlier = variance > WEIGHT_OUTLIER_THRESHOLD
@@ -326,7 +428,7 @@ def load_orders(path: Path) -> tuple[list[dict], dict]:
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "order_count": len(orders),
         "weight_outlier_threshold": WEIGHT_OUTLIER_THRESHOLD,
-        "note": "Weight Variance is taken from source as-is; qty is units per PH NO",
+        "note": "Weight Variance is taken from source as-is; qty defaults to 1 when absent",
     }
     return orders, meta
 
